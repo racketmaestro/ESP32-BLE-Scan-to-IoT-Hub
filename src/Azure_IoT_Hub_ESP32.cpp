@@ -28,6 +28,8 @@
 #include <cstdlib>
 #include <string.h>
 #include <time.h>
+#include <RealTimeClock.h>
+#include <SPI.h>
 
 // Libraries for MQTT client and WiFi connection
 #include <WiFi.h>
@@ -310,13 +312,24 @@ static void establishConnection()
   (void)initializeMqttClient();
 }
 
+String getTimestamp() {
+  DateTime detectedTime = rtc.now();
+  char timestamp[20];
+  sprintf(timestamp, "%04d-%02d-%02d %02d:%02d:%02d",
+            detectedTime.year(), detectedTime.month(), detectedTime.day(), detectedTime.hour(), detectedTime.minute(), detectedTime.second());
+
+  return String(timestamp);
+}
+
 static void generateTelemetryPayload()
 {
   // You can generate the JSON using any lib you want. Here we're showing how to do it manually, for simplicity.
   // This sample shows how to generate the payload using a syntax closer to regular delevelopment for Arduino, with
   // String type instead of az_span as it might be done in other samples. Using az_span has the advantage of reusing the 
   // same char buffer instead of dynamically allocating memory each time, as it is done by using the String type below.
-  telemetry_payload = "{ \"msgCount\": " + String(telemetry_send_count++) + " }";
+  
+  String timestamp = getTimestamp();
+  telemetry_payload = "{ \"msgCount\": " + String(telemetry_send_count++) + ", \"time\":\"" + String(timestamp) + "\"}";
 }
 
 static void sendTelemetry()
@@ -356,6 +369,7 @@ static void sendTelemetry()
 
 void setup() { establishConnection();
 Serial.begin(115200);
+setupRealTimeClock();
  }
 
 void loop()

@@ -55,10 +55,10 @@
 
 // Azure IoT
 #define IOT_CONFIG_IOTHUB_FQDN "hdi-iot-hub.azure-devices.net"
-#define IOT_CONFIG_DEVICE_ID "ESP_01"
+#define IOT_CONFIG_DEVICE_ID "ESP_02"
 // Use device key if not using certificates
 #ifndef IOT_CONFIG_USE_X509_CERT
-#define IOT_CONFIG_DEVICE_KEY "m6iW5WNN5MWNa8NdNRSgWJhID6c2owivJ7oqt1kkonw="
+#define IOT_CONFIG_DEVICE_KEY "T+gVZj2TFva+eWo5G6Be+Hm97BZNbAhcwbhiPPIhdsk="
 #endif // IOT_CONFIG_USE_X509_CERT
 
 // Publish 1 message every 2 seconds
