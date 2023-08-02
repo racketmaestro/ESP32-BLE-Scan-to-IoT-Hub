@@ -7,11 +7,12 @@ This project utilizes the Azure SDK for C Arduino library to connect an ESP32 de
 Azure IoT Hub serves as the MQTT server, receiving the Bluetooth data sent by the ESP32 device. The IoT Hub can then route this data to other Azure services for storage, processing, and analysis. This can be used in a variety of applications, such as tracking the presence and proximity of Bluetooth devices in an area, analyzing patterns in device activity, and more.
 
 ## Prerequisites
-Platformio IDE
-An ESP32 device
-An Azure subscription
-An instance of Azure IoT Hub
-Setup
+* Platformio IDE
+* An ESP32 device
+* An Azure subscription
+* An instance of Azure IoT Hub
+
+## Setup
 Install the Azure SDK for C: This can be done using the Arduino Library Manager. In the Arduino IDE, go to Sketch > Include Library > Manage Libraries. Then search for "Azure SDK for C" and install it.
 
 Set up Azure IoT Hub: Follow the instructions here to create an IoT Hub instance. Once created, you'll need to register your ESP32 device and get its connection string. Instructions for that can be found here.
