@@ -1,4 +1,4 @@
-# Azure IoT Hub ESP32
+# Send BLE data from ESP32 to Azure IoT Hub via MQTT
 This project demonstrates how to use an ESP32 device to collect Bluetooth data and upload it to Azure IoT Hub using the Azure SDK for C and MQTT protocol. The ESP32 device scans for nearby Bluetooth devices, collects relevant data, and then uploads this data to the IoT Hub where it can be processed, stored, and analyzed.
 
 ## Project Description
