@@ -56,14 +56,13 @@
 #endif // IOT_CONFIG_USE_X509_CERT
 
 // Azure IoT
-#define IOT_CONFIG_IOTHUB_FQDN "hdi-iot-hub.azure-devices.net"
-#define IOT_CONFIG_DEVICE_ID "ESP_02"
+#define IOT_CONFIG_IOTHUB_FQDN ""
+#define IOT_CONFIG_DEVICE_ID ""
 // Use device key if not using certificates
 #ifndef IOT_CONFIG_USE_X509_CERT
-#define IOT_CONFIG_DEVICE_KEY "T+gVZj2TFva+eWo5G6Be+Hm97BZNbAhcwbhiPPIhdsk="
+#define IOT_CONFIG_DEVICE_KEY ""
 #endif // IOT_CONFIG_USE_X509_CERT
 
 // Publish 1 message every 2 seconds
 #define TELEMETRY_FREQUENCY_MILLISECS 20000
 
-// Custom event hub connection string: Endpoint=sb://hdi-nexus.servicebus.windows.net/;SharedAccessKeyName=policy1;SharedAccessKey=TsM6EqZY2rOUfzKXd1ppa1xBfQ0R5OW/Y+AEhIJ3Jm4=;EntityPath=bluetooth-event-hub
