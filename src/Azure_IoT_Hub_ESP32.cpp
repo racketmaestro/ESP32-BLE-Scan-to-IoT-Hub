@@ -1,28 +1,3 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
-// SPDX-License-Identifier: MIT
-
-/*
- * This is an Arduino-based Azure IoT Hub sample for ESPRESSIF ESP32 boards.
- * It uses our Azure Embedded SDK for C to help interact with Azure IoT.
- * For reference, please visit https://github.com/azure/azure-sdk-for-c.
- *
- * To connect and work with Azure IoT Hub you need an MQTT client, connecting, subscribing
- * and publishing to specific topics to use the messaging features of the hub.
- * Our azure-sdk-for-c is an MQTT client support library, helping composing and parsing the
- * MQTT topic names and messages exchanged with the Azure IoT Hub.
- *
- * This sample performs the following tasks:
- * - Synchronize the device clock with a NTP server;
- * - Initialize our "az_iot_hub_client" (struct for data, part of our azure-sdk-for-c);
- * - Initialize the MQTT client (here we use ESPRESSIF's esp_mqtt_client, which also handle the tcp
- * connection and TLS);
- * - Connect the MQTT client (using server-certificate validation, SAS-tokens for client
- * authentication);
- * - Periodically send telemetry data to the Azure IoT Hub.
- *
- * To properly connect to your Azure IoT Hub, please fill the information in the `iot_configs.h`
- * file.
- */
 
 // C99 libraries
 #include <cstdlib>
@@ -41,9 +16,17 @@
 #include <azure_ca.h>
 
 // Additional sample headers
-#include "AzIoTSasToken.h"
-#include "SerialLogger.h"
+#include <AzIoTSasToken.h>
+#include <SerialLogger.h>
 #include "iot_configs.h"
+
+// Bluetooth scanning and SD card libraries
+#include <Arduino.h>
+#include <Wire.h>
+#include <ArduinoJson.h>
+#include <SD.h>
+#include <NimBLEDevice.h>
+#include <NimBLEAdvertisedDevice.h>
 
 // When developing for your own Arduino-based platform,
 // please follow the format '(ard;<platform>)'.
@@ -63,6 +46,8 @@
 #define GMT_OFFSET_SECS (PST_TIME_ZONE * 3600)
 #define GMT_OFFSET_SECS_DST ((PST_TIME_ZONE + PST_TIME_ZONE_DAYLIGHT_SAVINGS_DIFF) * 3600)
 
+#define MAC_ADDRESS_SIZE 6
+
 // Translate iot_configs.h defines into variables used by the sample
 static const char* ssid = IOT_CONFIG_WIFI_SSID;
 static const char* password = IOT_CONFIG_WIFI_PASSWORD;
@@ -70,8 +55,8 @@ static const char* host = IOT_CONFIG_IOTHUB_FQDN;
 // static const char* mqtt_broker_uri = "mqtts://" IOT_CONFIG_IOTHUB_FQDN;
 static const char* device_id = IOT_CONFIG_DEVICE_ID;
 // static const int mqtt_port = AZ_IOT_DEFAULT_MQTT_CONNECT_PORT;
-static const int mqtt_port = 443;
-static const char* mqtt_broker_uri = "wss://" IOT_CONFIG_IOTHUB_FQDN;
+static const int mqtt_port = 443;  // Use Port 443 instead of 8883
+static const char* mqtt_broker_uri = "wss://" IOT_CONFIG_IOTHUB_FQDN; // Communicate over websockets
 
 // Memory allocated for the sample's variables and structures.
 static esp_mqtt_client_handle_t mqtt_client;
@@ -81,13 +66,14 @@ static char mqtt_client_id[128];
 static char mqtt_username[128];
 static char mqtt_password[200]; 
 static uint8_t sas_signature_buffer[256];
-static unsigned long next_telemetry_send_time_ms = 0;
 static char telemetry_topic[128];
-static uint32_t telemetry_send_count = 0;
-static String telemetry_payload = "{}";
+
 
 #define INCOMING_DATA_BUFFER_SIZE 128
 static char incoming_data[INCOMING_DATA_BUFFER_SIZE];
+
+File dataFile;
+char macChars[18];
 
 // Auxiliary functions
 #ifndef IOT_CONFIG_USE_X509_CERT
@@ -98,6 +84,7 @@ static AzIoTSasToken sasToken(
     AZ_SPAN_FROM_BUFFER(mqtt_password));
 #endif // IOT_CONFIG_USE_X509_CERT
 
+// Function to connect ESP32 to wifi
 static void connectToWiFi()
 {
   Logger.Info("Connecting to WIFI SSID " + String(ssid));
@@ -117,6 +104,7 @@ static void connectToWiFi()
   Logger.Info("WiFi connected, IP address: " + WiFi.localIP().toString());
 }
 
+// Function to initialize time for the serial logger, which logs events into the serial monitor
 static void initializeTime()
 {
   Logger.Info("Setting time using SNTP");
@@ -133,6 +121,7 @@ static void initializeTime()
   Logger.Info("Time initialized!");
 }
 
+// Function that is called when the ESP32 receives a message from IoT Hub
 void receivedCallback(char* topic, byte* payload, unsigned int length)
 {
   Logger.Info("Received [");
@@ -145,6 +134,7 @@ void receivedCallback(char* topic, byte* payload, unsigned int length)
   Serial.println("");
 }
 
+// Event handler for when ESP32 connects to the IoT Hub MQTT Broker
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 {
   switch (event->event_id)
@@ -209,6 +199,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
   return ESP_OK;
 }
 
+// Initialize the IoT Hub Client
 static void initializeIoTHubClient()
 {
   az_iot_hub_client_options options = az_iot_hub_client_options_default();
@@ -243,6 +234,7 @@ static void initializeIoTHubClient()
   Logger.Info("Username: " + String(mqtt_username));
 }
 
+// Initialize MQTT Client on the ESP32
 static int initializeMqttClient()
 {
 #ifndef IOT_CONFIG_USE_X509_CERT
@@ -298,11 +290,14 @@ static int initializeMqttClient()
   }
 }
 
+
+
+
 /*
  * @brief           Gets the number of seconds since UNIX epoch until now.
  * @return uint32_t Number of seconds.
  */
-static uint32_t getEpochTimeInSecs() { return (uint32_t)time(NULL); }
+// static uint32_t getEpochTimeInSecs() { return (uint32_t)time(NULL); }
 
 static void establishConnection()
 {
@@ -312,6 +307,72 @@ static void establishConnection()
   (void)initializeMqttClient();
 }
 
+
+
+// Bluetooth scanning, SD card functions
+
+// Function to get the Mac Address of the ESP32. This will be used as the Receptor ID
+int ExtractMacAddress() {
+    uint8_t mac[MAC_ADDRESS_SIZE];// 17 chars for MAC address + 1 for null character
+
+    // Get MAC address
+    esp_efuse_mac_get_default(mac);
+
+    // Convert MAC address to string
+    int result = snprintf(macChars, sizeof(macChars), "%02x:%02x:%02x:%02x:%02x:%02x",
+                          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    if (result > 0 && result < sizeof(macChars)) {
+        printf("MAC Address: %s\n", macChars);
+    } else {
+        printf("Error occurred while converting MAC Address to string\n");
+    }
+    return 0;
+}
+
+
+// Function to send the telemetry to IoT Hub
+#define MAX_JSON_SIZE 512 // Define a suitable size based on your requirements
+static void sendTelemetry(String deviceMac, int rssi, String payloadString, String timestamp)
+{
+
+  char telemetry_payload[MAX_JSON_SIZE];
+
+  snprintf(telemetry_payload, MAX_JSON_SIZE, 
+    "{"
+    "\"macChars\": \"%s\", "
+    "\"timestamp\": \"%s\", "
+    "\"deviceAddress\": \"%s\", "
+    "\"rssi\": %d, "
+    "\"payloadString\": \"%s\""
+    "}", macChars, timestamp.c_str(), deviceMac.c_str(), rssi, payloadString.c_str());
+
+  if (az_result_failed(az_iot_hub_client_telemetry_get_publish_topic(
+          &client, NULL, telemetry_topic, sizeof(telemetry_topic), NULL)))
+  {
+    Logger.Error("Failed az_iot_hub_client_telemetry_get_publish_topic");
+    return;
+  }
+
+  if (esp_mqtt_client_publish(
+        mqtt_client,
+        telemetry_topic,
+        telemetry_payload,
+        strlen(telemetry_payload),
+        MQTT_QOS1,
+        DO_NOT_RETAIN_MSG)
+    == 0)
+    {
+      Logger.Error("Failed publishing");
+    }
+    else
+    {
+      Logger.Info("Message published successfully");
+    }
+
+}
+
+// Get the Timestamp from the DS3231 component
 String getTimestamp() {
   DateTime detectedTime = rtc.now();
   char timestamp[20];
@@ -321,56 +382,83 @@ String getTimestamp() {
   return String(timestamp);
 }
 
-static void generateTelemetryPayload()
-{
-  // You can generate the JSON using any lib you want. Here we're showing how to do it manually, for simplicity.
-  // This sample shows how to generate the payload using a syntax closer to regular delevelopment for Arduino, with
-  // String type instead of az_span as it might be done in other samples. Using az_span has the advantage of reusing the 
-  // same char buffer instead of dynamically allocating memory each time, as it is done by using the String type below.
-  
-  String timestamp = getTimestamp();
-  telemetry_payload = "{ \"msgCount\": " + String(telemetry_send_count++) + ", \"time\":\"" + String(timestamp) + "\"}";
+// Function to initialize SD card, create a file and write the header lines
+void setupSDCard() {
+  if (!SD.begin(5)) { // replace 5 with your actual CS pin if it's different
+      Serial.println("SD card initialization failed!");
+      return;
+  }
+    String timestamp = getTimestamp();
+    String filename = "/data_" + timestamp + ".csv";
+    
+    dataFile = SD.open(filename.c_str(), FILE_WRITE);
+    if (!dataFile) {
+      Serial.println("Error opening " + filename);
+      return;
+    }
+    
+    dataFile.println("receptor_id,timestamp,mac_address,RSSI,payload");
 }
 
-static void sendTelemetry()
-{
-  Logger.Info("Sending telemetry ...");
+// Function to write the bluetooth data to the SD card
+void logScanResults(String deviceMac, int rssi, String payloadString, String timestamp) {
+    if (dataFile) {
+ 
+        int bytesWritten = dataFile.printf("%s, %s, %s, %s, %d, %s\n", 
+                                            macChars, 
+                                            timestamp, 
+                                            deviceMac, 
+                                            rssi, 
+                                            payloadString.c_str());
+        if (bytesWritten <= 0) {
+            Serial.println("Failed to write to file");
+        }
+        dataFile.flush(); // make sure the data gets written
+    } else {
+        Serial.println("File not open for writing");
+    }
+}
 
-  // The topic could be obtained just once during setup,
-  // however if properties are used the topic need to be generated again to reflect the
-  // current values of the properties.
-  if (az_result_failed(az_iot_hub_client_telemetry_get_publish_topic(
-          &client, NULL, telemetry_topic, sizeof(telemetry_topic), NULL)))
-  {
-    Logger.Error("Failed az_iot_hub_client_telemetry_get_publish_topic");
-    return;
-  }
 
-  generateTelemetryPayload();
+void startBLEscan() {
+  NimBLEScanResults scanResults = NimBLEDevice::getScan()->start(3, false);
+  NimBLEAdvertisedDevice device;
 
-  if (esp_mqtt_client_publish(
-          mqtt_client,
-          telemetry_topic,
-          (const char*)telemetry_payload.c_str(),
-          telemetry_payload.length(),
-          MQTT_QOS1,
-          DO_NOT_RETAIN_MSG)
-      == 0)
-  {
-    Logger.Error("Failed publishing");
-  }
-  else
-  {
-    Logger.Info("Message published successfully");
+  for (int i = 0; i < scanResults.getCount(); i++) {
+    device = scanResults.getDevice(i);
+    
+    int rssi = device.getRSSI();
+
+    if (rssi > -76) {
+      uint8_t* payload = device.getPayload();
+      int payloadLength = device.getPayloadLength();
+      String payloadString;
+      String timestamp = getTimestamp();
+      String deviceMac = device.getAddress().toString().c_str();
+      for(int i = 0; i < payloadLength; i++) {
+        char str[3];
+        sprintf(str, "%02X", payload[i]);
+        payloadString += str;
+    }
+
+    sendTelemetry(deviceMac, rssi, payloadString, timestamp);
+    // logScanResults(deviceMac, rssi, payloadString, timestamp);
+    }
+    
   }
 }
 
 // Arduino setup and loop main functions.
 
-void setup() { establishConnection();
-Serial.begin(115200);
-setupRealTimeClock();
+void setup() { 
+  ExtractMacAddress();
+  Serial.begin(115200);
+  establishConnection();
+  setupRealTimeClock();
+  Serial.println("Starting BLE scan");
+  NimBLEDevice::init("");
  }
+
 
 void loop()
 {
@@ -386,9 +474,7 @@ void loop()
     initializeMqttClient();
   }
 #endif
-  else if (millis() > next_telemetry_send_time_ms)
-  {
-    sendTelemetry();
-    next_telemetry_send_time_ms = millis() + TELEMETRY_FREQUENCY_MILLISECS;
-  }
+  startBLEscan();
+  delay(60000);
+
 }

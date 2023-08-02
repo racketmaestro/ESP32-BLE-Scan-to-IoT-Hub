@@ -5,7 +5,7 @@
 RTC_DS3231 rtc;
 
 void setupRealTimeClock() {
-  Serial.println("setupRealTimeClock");
+  Serial.println("Setting Up RealTimeClock...");
 
   if (!rtc.begin()) {
     Serial.println("Couldn't find RTC");
